@@ -91,7 +91,7 @@ const FpsThrottler = struct {
         throttler.frame_duration_timer.reset();
     }
 
-    fn endFrame(throttler: FpsThrottler) void {
+    fn endFrame(throttler: *FpsThrottler) void {
         if (throttler.config.should_cap_fps) {
             const frame_elapsed_time = throttler.frame_duration_timer.read();
             const target_fps_ns = secondsToNanoSeconds(1.0 / throttler.config.max_frames_per_second);
@@ -103,6 +103,13 @@ const FpsThrottler = struct {
     }
 };
 
+// const vk = @cImport({
+//     @cInclude("vulkan/vulkan.h");
+// });
+
+// const vk = @import("vulkan");
+// const vk = @import("vend
+
 pub fn main() anyerror!void {
     var fps_throttler = try FpsThrottler.init(.{});
     var game = Game{};
@@ -110,7 +117,7 @@ pub fn main() anyerror!void {
     const window = try Window.init(.{});
     defer window.deinit();
 
-    const clock = try Timer.start();
+    var clock = try Timer.start();
     var last_time: u64 = clock.read();
 
     var passed_time: f64 = 0;

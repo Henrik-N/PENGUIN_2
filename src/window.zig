@@ -229,7 +229,7 @@ const linux = struct {
                 connection.?,
                 0,
                 @intCast(u16, atom_name.len),
-                atom_name,
+                atom_name.ptr,
             );
         }
 
