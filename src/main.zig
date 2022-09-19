@@ -1,6 +1,9 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+const Window = @import("window.zig").Window;
+const Timer = std.time.Timer;
+
 const c = @cImport({
     @cInclude("xcb/xcb.h");
     @cInclude("X11/keysym.h");
@@ -48,30 +51,97 @@ pub fn log(
     );
 }
 
-/// Returns absolute time in seconds
-pub fn getAbsoluteTime() f64 {
-    var now: std.os.system.timespec = undefined;
-    std.os.clock_gettime(std.os.CLOCK.MONOTONIC, &now) catch unreachable;
-    const nanoseconds_in_seconds = @intToFloat(f64, now.tv_nsec) * 0.0000_0000_1;
-    return @intToFloat(f64, now.tv_sec) + nanoseconds_in_seconds;
+const Game = struct {
+    pub fn update(game: *Game, dt: f32) !void {
+        _ = game;
+        _ = dt;
+    }
+
+    pub fn render(game: *Game, dt: f32) !void {
+        _ = game;
+        _ = dt;
+    }
+};
+
+fn nanosecondsToSeconds(ns: u64) f64 {
+    return @intToFloat(f64, ns) / @intToFloat(f64, std.time.ns_per_s);
 }
 
-const Window = @import("window.zig").Window;
+fn secondsToNanoSeconds(s: f64) u64 {
+    return @floatToInt(u64, s * std.time.ns_per_s);
+}
+
+const FpsThrottler = struct {
+    const Config = struct {
+        should_cap_fps: bool = true,
+        max_frames_per_second: f64 = 60.0,
+    };
+
+    frame_duration_timer: Timer,
+    config: Config,
+
+    fn init(config: Config) !FpsThrottler {
+        return FpsThrottler{
+            .frame_duration_timer = try Timer.start(),
+            .config = config,
+        };
+    }
+
+    fn beginFrame(throttler: *FpsThrottler) void {
+        throttler.frame_duration_timer.reset();
+    }
+
+    fn endFrame(throttler: FpsThrottler) void {
+        if (throttler.config.should_cap_fps) {
+            const frame_elapsed_time = throttler.frame_duration_timer.read();
+            const target_fps_ns = secondsToNanoSeconds(1.0 / throttler.config.max_frames_per_second);
+            const remaining_ns: u64 = target_fps_ns - frame_elapsed_time;
+            if (remaining_ns > 0) {
+                std.time.sleep(remaining_ns);
+            }
+        }
+    }
+};
 
 pub fn main() anyerror!void {
+    var fps_throttler = try FpsThrottler.init(.{});
+    var game = Game{};
+
     const window = try Window.init(.{});
     defer window.deinit();
 
-    while (window.pollEvents()) {
-        const absolute_time = getAbsoluteTime();
-        std.log.debug("absolute time: {}", .{absolute_time});
-    }
+    const clock = try Timer.start();
+    var last_time: u64 = clock.read();
 
-    // testing log colors
-    std.log.info("info", .{});
-    std.log.debug("debug", .{});
-    std.log.warn("warning", .{});
-    std.log.err("error", .{});
+    var passed_time: f64 = 0;
+
+    while (window.pollEvents()) {
+        const now: u64 = clock.read();
+        const dt: f64 = nanosecondsToSeconds(now - last_time);
+        last_time = now;
+
+        {
+            passed_time += dt;
+            std.log.info("Now: {d:.2}", .{passed_time});
+        }
+
+        {
+            fps_throttler.beginFrame();
+            defer fps_throttler.endFrame();
+
+            game.update(@floatCast(f32, dt)) catch |e| {
+                std.log.err("game update failed with error: {}", .{e});
+                return e;
+            };
+
+            game.render(@floatCast(f32, dt)) catch |e| {
+                std.log.err("game render failed with error: {}", .{e});
+                return e;
+            };
+        }
+
+        // input
+    }
 
     std.log.info("Exit success", .{});
 }
