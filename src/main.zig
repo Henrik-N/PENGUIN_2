@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 
 const Window = @import("window.zig").Window;
 const Timer = std.time.Timer;
+const Renderer = @import("renderer.zig").Renderer;
 
 const c = @cImport({
     @cInclude("xcb/xcb.h");
@@ -13,6 +14,10 @@ const c = @cImport({
     @cInclude("sys/time.h");
     @cInclude("stdlib.h");
 });
+
+// defined in root for vulkan-zig
+pub const xcb_connection_t = c.xcb_connection_t;
+pub const xcb_window_t = c.xcb_window_t;
 
 const NULL: i32 = 0;
 const FALSE: i32 = 0;
@@ -103,13 +108,6 @@ const FpsThrottler = struct {
     }
 };
 
-// const vk = @cImport({
-//     @cInclude("vulkan/vulkan.h");
-// });
-
-// const vk = @import("vulkan");
-// const vk = @import("vend
-
 pub fn main() anyerror!void {
     var fps_throttler = try FpsThrottler.init(.{});
     var game = Game{};
@@ -117,34 +115,36 @@ pub fn main() anyerror!void {
     const window = try Window.init(.{});
     defer window.deinit();
 
+    var renderer = try Renderer.init(window);
+    defer renderer.deinit();
+
     var clock = try Timer.start();
     var last_time: u64 = clock.read();
-
-    var passed_time: f64 = 0;
 
     while (window.pollEvents()) {
         const now: u64 = clock.read();
         const dt: f64 = nanosecondsToSeconds(now - last_time);
         last_time = now;
 
-        {
-            passed_time += dt;
-            std.log.info("Now: {d:.2}", .{passed_time});
-        }
+        const delta_time = @floatCast(f32, dt);
 
         {
             fps_throttler.beginFrame();
             defer fps_throttler.endFrame();
 
-            game.update(@floatCast(f32, dt)) catch |e| {
+            game.update(delta_time) catch |e| {
                 std.log.err("game update failed with error: {}", .{e});
                 return e;
             };
 
-            game.render(@floatCast(f32, dt)) catch |e| {
+            game.render(delta_time) catch |e| {
                 std.log.err("game render failed with error: {}", .{e});
                 return e;
             };
+
+            try renderer.renderFrame(.{
+                .delta_time = delta_time,
+            });
         }
 
         // input

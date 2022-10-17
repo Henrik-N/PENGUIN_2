@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const log = std.log.scoped(.window);
 
 const PlatformWindow = switch (builtin.os.tag) {
     .linux => linux.X11Window,
@@ -205,7 +206,7 @@ const linux = struct {
                         const client_message_event = @ptrCast(?*c.xcb_client_message_event_t, event);
 
                         if (client_message_event.?.*.data.data32[0] == platform.wm_delete_win) {
-                            std.log.info("exit request message received, exiting...", .{});
+                            log.debug("exit request message received, exiting...", .{});
                             should_window_close = true;
                             break;
                         }
