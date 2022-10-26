@@ -147,37 +147,14 @@ pub const VulkanContext = struct {
         log.info("queue families: {}", .{queue_families});
 
         const physical_device_info = vulkan_types.PhysicalDeviceInfo.get(instance, physical_device);
-        logPhysicalDeviceInfo(physical_device_info);
+        log.info("physical device info: {}", .{physical_device_info});
+
+        const device = try vulkan_types.VulkanDevice.init(instance, physical_device, queue_families, device_extensions[0..]);
+        defer device.deinit();
+
+        const queues = vulkan_types.Queues.get(device, queue_families);
+        log.info("queues: {}", .{queues});
 
         return VulkanContext{};
     }
 };
-
-fn logPhysicalDeviceInfo(info: vulkan_types.PhysicalDeviceInfo) void {
-    const props = info.properties;
-    log.info("using: {s}", .{props.device_name});
-    log.info("\t Vulkan version:\t {}.{}.{}", .{
-        vk.apiVersionMajor(props.api_version),
-        vk.apiVersionMinor(props.api_version),
-        vk.apiVersionPatch(props.api_version),
-    });
-    log.info("\t Gpu driver version:\t {}.{}.{}", .{
-        vk.apiVersionMajor(props.driver_version),
-        vk.apiVersionMinor(props.driver_version),
-        vk.apiVersionPatch(props.driver_version),
-    });
-
-    const memory_heaps = info.memory.memory_heaps[0..info.memory.memory_heap_count];
-
-    log.info("\t Memory heaps:", .{});
-
-    for (memory_heaps) |heap_info, index| {
-        const megabytes = @intToFloat(f32, heap_info.size) / 1024.0 / 1024.0;
-
-        if (heap_info.flags.contains(vk.MemoryHeapFlags{ .device_local_bit = true })) {
-            log.info("\t\t {}: device local \t{d:.2} MB", .{ index, megabytes });
-        } else {
-            log.info("\t\t {}: system shared \t{d:.2} MB", .{ index, megabytes });
-        }
-    }
-}

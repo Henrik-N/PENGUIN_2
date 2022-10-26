@@ -26,6 +26,9 @@ const InstanceDispatch = vk.InstanceWrapper(.{
     .getPhysicalDeviceSurfaceSupportKHR = true,
     .getPhysicalDeviceMemoryProperties = true,
     .getPhysicalDeviceFeatures = true,
+
+    .createDevice = true,
+    .getDeviceProcAddr = true,
 });
 
 pub const VulkanInstance = struct {

@@ -11,3 +11,7 @@ pub const QueueFamilyIndices = physical_device.QueueFamilyIndices;
 pub const SwapchainSupportInfo = physical_device.SwapchainSupportInfo;
 
 pub const surface = @import("vulkan_surface.zig");
+
+pub const logical_device = @import("vulkan_logical_device.zig");
+pub const Queues = logical_device.Queues;
+pub const VulkanDevice = logical_device.VulkanDevice;

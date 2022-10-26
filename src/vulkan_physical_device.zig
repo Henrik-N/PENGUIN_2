@@ -69,6 +69,41 @@ pub const PhysicalDeviceInfo = struct {
             .memory = instance.vki.getPhysicalDeviceMemoryProperties(pd),
         };
     }
+
+    pub fn format(
+        info: PhysicalDeviceInfo,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        const props = info.properties;
+
+        try writer.print("\n\t{s}\n", .{props.device_name});
+        try writer.print("\tVulkan version:\t\t {}.{}.{}\n", .{
+            vk.apiVersionMajor(props.api_version),
+            vk.apiVersionMinor(props.api_version),
+            vk.apiVersionPatch(props.api_version),
+        });
+        try writer.print("\tGpu driver version:\t {}.{}.{}\n", .{
+            vk.apiVersionMajor(props.driver_version),
+            vk.apiVersionMinor(props.driver_version),
+            vk.apiVersionPatch(props.driver_version),
+        });
+
+        const memory_heaps = info.memory.memory_heaps[0..info.memory.memory_heap_count];
+
+        try writer.print("\tMemory heaps:\n", .{});
+
+        for (memory_heaps) |heap_info, index| {
+            const megabytes = @intToFloat(f32, heap_info.size) / 1024.0 / 1024.0;
+
+            if (heap_info.flags.contains(vk.MemoryHeapFlags{ .device_local_bit = true })) {
+                try writer.print("\t\t{}: device local \t{d:.2} MB\n", .{ index, megabytes });
+            } else {
+                try writer.print("\t\t{}: system shared \t{d:.2} MB\n", .{ index, megabytes });
+            }
+        }
+    }
 };
 
 pub const QueueFamilyIndices = struct {
@@ -142,6 +177,20 @@ pub const QueueFamilyIndices = struct {
         }
 
         return indices;
+    }
+
+    pub fn format(
+        families: QueueFamilyIndices,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try writer.print("\n\tgraphics:\t {?}\n\tpresent:\t {?}\n\tcompute:\t {?}\n\ttransfer:\t {?}", .{
+            families.graphics,
+            families.present,
+            families.compute,
+            families.transfer,
+        });
     }
 };
 
