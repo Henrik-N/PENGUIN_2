@@ -2,7 +2,9 @@ const std = @import("std");
 pub const vk = @import("vendor/vulkan-zig/vk.zig");
 
 pub const VulkanEntry = @import("vulkan_entry.zig").VulkanEntry;
-pub const VulkanInstance = @import("vulkan_instance.zig").VulkanInstance;
+const instance = @import("vulkan_instance.zig");
+pub const VulkanInstance = instance.VulkanInstance;
+pub const InstanceDispatch = instance.InstanceDispatch;
 
 pub const physical_device = @import("vulkan_physical_device.zig");
 pub const PhysicalDeviceInfo = physical_device.PhysicalDeviceInfo;
