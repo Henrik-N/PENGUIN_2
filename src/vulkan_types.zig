@@ -17,3 +17,9 @@ pub const surface = @import("vulkan_surface.zig");
 pub const logical_device = @import("vulkan_logical_device.zig");
 pub const Queues = logical_device.Queues;
 pub const VulkanDevice = logical_device.VulkanDevice;
+
+pub const renderer = @import("renderer.zig");
+pub const VulkanContext = renderer.VulkanContext;
+
+pub const swapchain = @import("vulkan_swapchain.zig");
+pub const Swapchain = swapchain.Swapchain;

@@ -31,11 +31,16 @@ pub const Window = struct {
     pub fn pollEvents(window: Window) bool {
         return window.platform_window.pollEvents();
     }
+
+    pub fn getWindowSize(window: Window, width: *i32, height: *i32) !void {
+        return window.platform_window.getWindowSize(width, height);
+    }
 };
 
 const linux = struct {
     const c = @cImport({
         @cInclude("xcb/xcb.h");
+        // @cInclude("xcb/xproto.h");
         @cInclude("X11/keysym.h");
         @cInclude("X11/XKBlib.h");
         @cInclude("X11/Xlib.h");
@@ -50,6 +55,7 @@ const linux = struct {
 
     pub const X11Window = struct {
         display: ?*c.Display = null,
+        // Xcb connection to X11
         connection: ?*c.xcb_connection_t = null,
         //
         window: c.xcb_window_t,
@@ -58,6 +64,23 @@ const linux = struct {
         wm_protocols: c.xcb_atom_t,
         // window message
         wm_delete_win: c.xcb_atom_t,
+
+        pub fn getWindowSize(window: X11Window, width: *i32, height: *i32) !void {
+            if (window.display == null) {
+                return error.DisplayIsNull;
+            }
+            const cookie: c.xcb_get_geometry_cookie_t = c.xcb_get_geometry(window.connection.?, window.window);
+            const reply: ?*c.xcb_get_geometry_reply_t = c.xcb_get_geometry_reply(window.connection.?, cookie, null);
+            defer c.free(reply);
+
+            if (reply) |r| {
+                width.* = r.width;
+                height.* = r.height;
+                return;
+            }
+
+            return error.FailedToGetWindowSize;
+        }
 
         pub fn init(config: Window.Config) !X11Window {
             // Connect to X-server
@@ -127,7 +150,7 @@ const linux = struct {
                 c.XCB_ATOM_WM_NAME,
                 c.XCB_ATOM_STRING,
                 @bitSizeOf(u8), // read data 8 bits at a time (1 char)
-                @intCast(u32, config.title.len), // +1 == include null termination
+                @intCast(u32, config.title.len),
                 config.title.ptr,
             );
 
