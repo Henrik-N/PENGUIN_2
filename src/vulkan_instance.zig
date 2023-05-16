@@ -12,6 +12,7 @@ pub const VulkanInstance = struct {
     vki: InstanceDispatch,
 
     pub usingnamespace impl;
+    pub usingnamespace reimpl;
 
     pub fn deinit(instance: VulkanInstance) void {
         instance.destroyInstance(null);
@@ -60,7 +61,7 @@ const InstanceDispatch = vk.InstanceWrapper(.{
     .getPhysicalDeviceQueueFamilyProperties = true,
     .getPhysicalDeviceMemoryProperties = true,
     .getPhysicalDeviceFeatures = true,
-    // .getPhysicalDeviceFormatProperties = true,
+    .getPhysicalDeviceFormatProperties = true,
     // .getPhysicalDeviceImageFormatProperties = true,
     .createDevice = true,
     // .enumerateDeviceLayerProperties = true,
@@ -141,6 +142,59 @@ const InstanceDispatch = vk.InstanceWrapper(.{
     // .getPhysicalDeviceVideoCapabilitiesKHR = true,
     // .getPhysicalDeviceVideoFormatPropertiesKHR = true,
 });
+
+// function implementations that differ from the vulkan spec
+const reimpl = struct {
+    const Self = VulkanInstance;
+
+    pub fn getPhysicalDeviceSurfaceFormatsKHR(
+        self: Self,
+        physical_device: vk.PhysicalDevice,
+        surface: vk.SurfaceKHR,
+        allocator: std.mem.Allocator,
+    ) InstanceDispatch.GetPhysicalDeviceSurfaceFormatsKHRError!std.ArrayList(vk.SurfaceFormatKHR) {
+        var count: u32 = 0;
+        _ = try self.vki.getPhysicalDeviceSurfaceFormatsKHR(physical_device, surface, &count, null);
+
+        const surface_formats = try allocator.alloc(vk.SurfaceFormatKHR, count);
+        errdefer allocator.free(surface_formats);
+        _ = try self.vki.getPhysicalDeviceSurfaceFormatsKHR(physical_device, surface, &count, surface_formats.ptr);
+
+        return std.ArrayList(vk.SurfaceFormatKHR).fromOwnedSlice(surface_formats);
+    }
+
+    pub inline fn getPhysicalDeviceSurfacePresentModesKHR(
+        self: Self,
+        physical_device: vk.PhysicalDevice,
+        surface: vk.SurfaceKHR,
+        allocator: std.mem.Allocator,
+    ) InstanceDispatch.GetPhysicalDeviceSurfacePresentModesKHRError!std.ArrayList(vk.PresentModeKHR) {
+        var count: u32 = 0;
+        _ = try self.vki.getPhysicalDeviceSurfacePresentModesKHR(physical_device, surface, &count, null);
+
+        const present_modes = try allocator.alloc(vk.PresentModeKHR, count);
+        errdefer allocator.free(present_modes);
+        _ = try self.vki.getPhysicalDeviceSurfacePresentModesKHR(physical_device, surface, &count, present_modes.ptr);
+
+        return std.ArrayList(vk.PresentModeKHR).fromOwnedSlice(present_modes);
+    }
+
+    // count = 0;
+
+    // _ = try instance.vki.getPhysicalDeviceSurfacePresentModesKHR(pd, surface, &count, null);
+    // const present_modes = try allocator.alloc(vk.PresentModeKHR, count);
+    // errdefer allocator.free(present_modes);
+    // _ = try instance.vki.getPhysicalDeviceSurfacePresentModesKHR(pd, surface, &count, present_modes.ptr);
+
+    // return SwapchainSupportInfo{
+    //     .surface_capabilities = surface_capabilities,
+    //     .surface_formats = surface_formats,
+    //     .present_modes = present_modes,
+    // };
+
+    // return self.vki.getPhysicalDeviceSurfaceFormatsKHR(physical_device, surface, p_surface_format_count, p_surface_formats);
+
+};
 
 const impl = struct {
     const Self = VulkanInstance;
@@ -358,25 +412,25 @@ const impl = struct {
         return self.getPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, surface);
     }
 
-    pub inline fn getPhysicalDeviceSurfaceFormatsKHR(
-        self: Self,
-        physical_device: vk.PhysicalDevice,
-        surface: vk.SurfaceKHR,
-        p_surface_format_count: *u32,
-        p_surface_formats: ?[*]vk.SurfaceFormatKHR,
-    ) InstanceDispatch.GetPhysicalDeviceSurfaceFormatsKHRError!vk.Result {
-        return self.vki.getPhysicalDeviceSurfaceFormatsKHR(physical_device, surface, p_surface_format_count, p_surface_formats);
-    }
+    // pub inline fn getPhysicalDeviceSurfaceFormatsKHR(
+    //     self: Self,
+    //     physical_device: vk.PhysicalDevice,
+    //     surface: vk.SurfaceKHR,
+    //     p_surface_format_count: *u32,
+    //     p_surface_formats: ?[*]vk.SurfaceFormatKHR,
+    // ) InstanceDispatch.GetPhysicalDeviceSurfaceFormatsKHRError!vk.Result {
+    //     return self.vki.getPhysicalDeviceSurfaceFormatsKHR(physical_device, surface, p_surface_format_count, p_surface_formats);
+    // }
 
-    pub inline fn getPhysicalDeviceSurfacePresentModesKHR(
-        self: Self,
-        physical_device: vk.PhysicalDevice,
-        surface: vk.SurfaceKHR,
-        p_present_mode_count: *u32,
-        p_present_modes: ?[*]vk.PresentModeKHR,
-    ) InstanceDispatch.GetPhysicalDeviceSurfacePresentModesKHRError!vk.Result {
-        return self.vki.getPhysicalDeviceSurfacePresentModesKHR(physical_device, surface, p_present_mode_count, p_present_modes);
-    }
+    // pub inline fn getPhysicalDeviceSurfacePresentModesKHR(
+    //     self: Self,
+    //     physical_device: vk.PhysicalDevice,
+    //     surface: vk.SurfaceKHR,
+    //     p_present_mode_count: *u32,
+    //     p_present_modes: ?[*]vk.PresentModeKHR,
+    // ) InstanceDispatch.GetPhysicalDeviceSurfacePresentModesKHRError!vk.Result {
+    //     return self.vki.getPhysicalDeviceSurfacePresentModesKHR(physical_device, surface, p_present_mode_count, p_present_modes);
+    // }
 
     pub inline fn createViSurfaceNN(
         self: Self,

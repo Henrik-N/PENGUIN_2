@@ -78,6 +78,57 @@ const RenderBackend = struct {
     }
 };
 
+const vk_init = struct {
+    const default_image_create_info = vk.ImageCreateInfo{
+        // always fill out:
+        // format
+        // extent.width, extent.height
+        // tiling
+        // usage
+        .flags = .{},
+        .image_type = .@"2d",
+        .format = undefined,
+        .extent = vk.Extent3D{
+            .width = undefined,
+            .height = undefined,
+            .depth = 1,
+        },
+        .mip_levels = 1,
+        .array_layers = 1,
+        .samples = .{ .@"1_bit" = true },
+        .tiling = .optimal, //
+        .usage = undefined,
+        .sharing_mode = .exclusive,
+        // these are only here for if sharing mode is concurrent
+        .queue_family_index_count = undefined,
+        .p_queue_family_indices = undefined,
+        //
+        .initial_layout = .undefined,
+    };
+
+    const ImageCreateInfoQuickParams = struct {
+        usage: vk.ImageUsageFlags,
+        format: vk.Format,
+        width: u32,
+        height: u32,
+        depth: u32 = 1,
+        tiling: vk.ImageTiling = .optimal, //
+    };
+
+    fn imageCreateInfo(params: ImageCreateInfoQuickParams) vk.ImageCreateInfo {
+        var create_info = default_image_create_info;
+        create_info.usage = params.usage;
+        create_info.format = params.format;
+        create_info.extent = vk.Extent3D{
+            .width = params.width,
+            .height = params.height,
+            .depth = params.depth,
+        };
+        create_info.tiling = params.tiling;
+        return create_info;
+    }
+};
+
 pub const VulkanContext = struct {
     allocator: Allocator,
 
@@ -94,6 +145,13 @@ pub const VulkanContext = struct {
     swapchain: Swapchain,
     current_image_index: u32,
     current_frame: usize,
+
+    const Image = struct {
+        handle: vk.Image,
+        memory: vk.DeviceMemory,
+        height: u32,
+        width: u32,
+    };
 
     pub fn deinit(context: *VulkanContext) void {
         defer context.entry.deinit();
@@ -206,6 +264,78 @@ pub const VulkanContext = struct {
             .preferred_present_modes = &.{.mailbox_khr},
         });
 
+        const preferred_depth_formats: []const vk.Format = &.{
+            .d32_sfloat,
+            .d32_sfloat_s8_uint,
+            .d24_unorm_s8_uint,
+        };
+
+        var tiling: vk.ImageTiling = undefined;
+
+        const depth_format = blk: {
+            const required_flags: vk.FormatFeatureFlags = .{ .depth_stencil_attachment_bit = true };
+
+            for (preferred_depth_formats) |format| {
+                const format_props: vk.FormatProperties = context.inst.getPhysicalDeviceFormatProperties(context.physical_device, format);
+
+                if (format_props.linear_tiling_features.contains(required_flags)) {
+                    tiling = vk.ImageTiling.linear;
+                    break :blk format;
+                }
+
+                if (format_props.optimal_tiling_features.contains(required_flags)) {
+                    tiling = vk.ImageTiling.optimal;
+                    break :blk format;
+                }
+            }
+
+            return error.FailedToFindDepthFormat;
+        };
+
+        _ = depth_format;
+
         return context;
+
+        // create depth image
+        // const depth_image_create_info = vk_init.imageCreateInfo(ImageCreateInfoQuickParams{
+        //     .usage = vk.ImageUsageFlags{ .depth_stencil_attachment_bit = true },
+        //     .format = swapchain.depth_format,
+        //     .width: u32,
+        //     .height: u32,
+        //     .depth: u32 = 1,
+        //     .tiling: vk.ImageTiling = .optimal, //
+
+        //     };
+
+        // const depth_format = findSuitableDepthFormat(context, &.{
+        //     // NOTE: This order should change if using a stencil component is desired
+        //     .d32_sfloat,
+        //     .d32_sfloat_s8_uint,
+        //     .d24_unorm_s8_uint,
+        // });
+
+        // TODO; Should the depth image even be here? Or is it better placed directly on the context?
+        // depth_format: vk.Format,
+        // depth_image: vk.Image,
+        // depth_image_view: vk.ImageView,
+
     }
 };
+
+fn findSuitableDepthFormat(context: VulkanContext, preferred_formats: []const vk.Format) !vk.Format {
+    const required_flags: vk.FormatFeatureFlags = .{ .depth_stencil_attachment_bit = true };
+
+    for (preferred_formats) |format| {
+        const format_props: vk.FormatProperties = context.inst.getPhysicalDeviceFormatProperties(context.physical_device, format);
+
+        if (format_props.linear_tiling_features.contains(required_flags)) {
+            return format;
+        }
+
+        if (format_props.optimal_tiling_features.contains(required_flags)) {
+            return format;
+        }
+    }
+
+    return error.FailedToFindDepthFormat;
+}

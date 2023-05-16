@@ -13,6 +13,7 @@ const Window = @import("window.zig").Window;
 
 const is_debug_build = builtin.mode == std.builtin.Mode.Debug;
 
+/// The preference lists should be ordered from most desirable to least desirable.
 const SwapchainInitParams = struct {
     window: Window,
     preferred_surface_formats: []const vk.SurfaceFormatKHR,
@@ -22,14 +23,14 @@ const SwapchainInitParams = struct {
 pub const Swapchain = struct {
     handle: vk.SwapchainKHR,
 
-    image_format: vk.SurfaceFormatKHR,
-    max_frames_in_flight: usize,
-
+    surface_format: vk.SurfaceFormatKHR,
     images: []vk.Image,
     image_views: []vk.ImageView,
 
+    max_frames_in_flight: usize,
+
     pub fn deinit(swapchain: *Swapchain, context: VulkanContext) void {
-        swapchain.destroyAndFreeImagesAndViews(context);
+        swapchain.destroyAndFreeImagesAndImageViews(context);
         context.device.destroySwapchainKHR(swapchain.handle, null);
     }
 
@@ -39,7 +40,7 @@ pub const Swapchain = struct {
 
         const image_extent: vk.Extent2D = try findTrueWindowExtent(params.window, support.surface_capabilities);
 
-        const image_format = try findSuitableSurfaceFormat(support, params.preferred_surface_formats);
+        const surface_format = try findSuitableSurfaceFormat(support, params.preferred_surface_formats);
         const present_mode = try findSuitablePresentMode(support, params.preferred_present_modes);
 
         log.info("present mode {s}", .{@tagName(present_mode)});
@@ -66,8 +67,8 @@ pub const Swapchain = struct {
             .flags = .{},
             .surface = context.surface,
             .min_image_count = image_count,
-            .image_format = image_format.format,
-            .image_color_space = image_format.color_space,
+            .image_format = surface_format.format,
+            .image_color_space = surface_format.color_space,
             .image_extent = image_extent,
             .image_array_layers = 1,
             .image_usage = .{ .color_attachment_bit = true, .transfer_dst_bit = true },
@@ -83,9 +84,11 @@ pub const Swapchain = struct {
 
         const handle = try context.device.createSwapchainKHR(&create_info, null);
 
+        // const depth_format = try findSuitableDepthFormat(context, params.preferred_depth_formats);
+
         var swapchain = Swapchain{
             .handle = handle,
-            .image_format = image_format,
+            .surface_format = surface_format,
             .max_frames_in_flight = max_frames_in_flight,
             .images = &.{},
             .image_views = &.{},
@@ -125,7 +128,7 @@ pub const Swapchain = struct {
                 .flags = .{},
                 .image = image,
                 .view_type = vk.ImageViewType.@"2d",
-                .format = swapchain.image_format.format,
+                .format = swapchain.surface_format.format,
                 .components = .{ .r = .identity, .g = .identity, .b = .identity, .a = .identity },
                 .subresource_range = vk.ImageSubresourceRange{
                     .aspect_mask = .{ .color_bit = true },
