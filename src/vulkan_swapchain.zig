@@ -123,7 +123,7 @@ pub const Swapchain = struct {
         _ = try context.device.getSwapchainImagesKHR(swapchain.handle, &count, swapchain.images.ptr);
 
         // create swapchain image views
-        for (swapchain.images) |image, index| {
+        for (swapchain.images, 0..) |image, index| {
             swapchain.image_views[index] = try context.device.createImageView(&vk.ImageViewCreateInfo{
                 .flags = .{},
                 .image = image,

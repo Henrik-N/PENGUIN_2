@@ -94,7 +94,7 @@ pub const PhysicalDeviceInfo = struct {
 
         try writer.print("\tMemory heaps:\n", .{});
 
-        for (memory_heaps) |heap_info, index| {
+        for (memory_heaps, 0..) |heap_info, index| {
             const megabytes = @intToFloat(f32, heap_info.size) / 1024.0 / 1024.0;
 
             if (heap_info.flags.contains(vk.MemoryHeapFlags{ .device_local_bit = true })) {
@@ -141,7 +141,7 @@ pub const QueueFamilyIndices = struct {
         // by trying to get it on a family with few or no other queues.
         var min_transfer_score: u8 = 255;
 
-        for (family_properties) |family_props, index| {
+        for (family_properties, 0..) |family_props, index| {
             var transfer_score: u8 = 0;
 
             if (indices.present == null and
@@ -210,7 +210,7 @@ pub fn selectPhysicalDevice(
     var highest_suitability_rating: i32 = -1;
     var highest_suitabliity_rating_index: ?usize = null;
 
-    for (physical_devices) |pd, index| {
+    for (physical_devices, 0..) |pd, index| {
         const info = vulkan_types.PhysicalDeviceInfo.get(instance, pd);
 
         log.debug("checking device {s}...", .{info.properties.device_name});

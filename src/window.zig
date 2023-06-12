@@ -248,7 +248,7 @@ const linux = struct {
         var cookies: [atom_count]c.xcb_intern_atom_cookie_t = undefined;
 
         // request atom identifiers for the event's we want to listen to
-        for (atom_names) |atom_name, index| {
+        for (atom_names, 0..) |atom_name, index| {
             cookies[index] = c.xcb_intern_atom(
                 connection.?,
                 0,
@@ -259,7 +259,7 @@ const linux = struct {
 
         // get atom replies
         var atom_replies: [atom_count]?*c.xcb_intern_atom_reply_t = undefined;
-        for (cookies) |cookie, index| {
+        for (cookies, 0..) |cookie, index| {
             atom_replies[index] = c.xcb_intern_atom_reply(
                 connection.?,
                 cookie,
@@ -270,7 +270,7 @@ const linux = struct {
 
         // get atoms, crash if unavailable
         var atoms: [atom_count]c.xcb_atom_t = undefined;
-        for (atom_replies) |reply_, index| {
+        for (atom_replies, 0..) |reply_, index| {
             const reply = reply_ orelse return error.AtomReplyMissing;
             atoms[index] = reply.*.atom;
         }
