@@ -25,9 +25,6 @@ pub fn build(b: *std.Build) void {
 
     if (target.getOsTag() == .linux) {
         exe.linkSystemLibrary("xcb");
-        exe.linkSystemLibrary("X11");
-        exe.linkSystemLibrary("X11-xcb");
-        exe.linkSystemLibrary("xkbcommon");
     }
 
     // This declares intent for the executable to be installed into the

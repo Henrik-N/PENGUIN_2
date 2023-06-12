@@ -12,9 +12,9 @@ pub fn createSurface(instance: VulkanInstance, window: Window) !vk.SurfaceKHR {
 
     const create_info = vk.XcbSurfaceCreateInfoKHR{
         .flags = .{},
-        .connection = window.platform_window.connection orelse return error.XcbConnectionNull,
-        .window = window.platform_window.window,
+        .connection = window.con.connection,
+        .window = window.window_id,
     };
 
-    return try instance.vki.createXcbSurfaceKHR(instance.handle, &create_info, null);
+    return try instance.createXcbSurfaceKHR(&create_info, null);
 }

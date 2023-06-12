@@ -1,280 +1,183 @@
 const std = @import("std");
-const builtin = @import("builtin");
-const log = std.log.scoped(.window);
+const log = std.log;
+const print = std.debug.print;
 
-const PlatformWindow = switch (builtin.os.tag) {
-    .linux => linux.X11Window,
-    else => @compileError("Unsupported platform"),
+const c = @cImport({
+    @cInclude("xcb/xcb.h");
+});
+
+pub const WindowProps = struct {
+    x: i16,
+    y: i16,
+    width: u16,
+    height: u16,
 };
 
 pub const Window = struct {
-    pub const Config = struct {
-        x: i16 = 10,
-        y: i16 = 10,
-        width: u16 = 800,
-        height: u16 = 600,
-        title: [:0]const u8 = "PENGUINS",
-    };
+    con: XcbConnection,
+    window_id: c.xcb_window_t,
+    delete_window_atom: c.xcb_atom_t,
 
-    platform_window: PlatformWindow,
+    pub fn deinit(window: Window) void {
+        window.con.disconnect();
+    }
 
-    pub fn init(config: Config) !Window {
-        return Window{
-            .platform_window = try PlatformWindow.init(config),
+    pub fn init(props: WindowProps) !Window {
+        const con = try XcbConnection.connect();
+        errdefer con.disconnect();
+
+        const window_id = createWindow(con, props);
+        changeWindowTitle(con, window_id, "Pengine");
+        mapWindow(con, window_id);
+
+        const delete_window_atom = blk: {
+            const window_protocols_cookie = con.requestInternAtom("WM_PROTOCOLS");
+            const delete_window_cookie = con.requestInternAtom("WM_DELETE_WINDOW");
+
+            const window_protocols_reply = con.recvInternAtomReply(window_protocols_cookie).?;
+            const delete_window_reply = con.recvInternAtomReply(delete_window_cookie).?;
+
+            _ = c.xcb_change_property(con.connection, c.XCB_PROP_MODE_REPLACE, window_id, window_protocols_reply.atom, 4, 32, 1, &delete_window_reply.atom);
+            break :blk delete_window_reply.atom;
+        };
+
+        try con.flush();
+
+        return .{
+            .con = con,
+            .window_id = window_id,
+            .delete_window_atom = delete_window_atom,
         };
     }
 
-    pub fn deinit(window: Window) void {
-        window.platform_window.deinit();
-    }
-
-    pub fn pollEvents(window: Window) bool {
-        return window.platform_window.pollEvents();
-    }
-
     pub fn getWindowSize(window: Window, width: *i32, height: *i32) !void {
-        return window.platform_window.getWindowSize(width, height);
+        const cookie: c.xcb_get_geometry_cookie_t = c.xcb_get_geometry(window.con.connection, window.window_id);
+        const reply: ?*c.xcb_get_geometry_reply_t = c.xcb_get_geometry_reply(window.con.connection, cookie, null);
+        defer if (reply) |r| std.heap.raw_c_allocator.destroy(r);
+
+        if (reply) |r| {
+            width.* = r.width;
+            height.* = r.height;
+            return;
+        }
+
+        return error.FailedToGetWindowSize;
+    }
+
+    pub fn setWindowSize(con: XcbConnection, window_id: c.xcb_window_t, _: WindowProps) void {
+        const mask: u16 =
+            c.XCB_CONFIG_WINDOW_X |
+            c.XCB_CONFIG_WINDOW_Y |
+            c.XCB_CONFIG_WINDOW_WIDTH |
+            c.XCB_CONFIG_WINDOW_HEIGHT;
+
+        const values = [_]u32{ 10, 10, 800, 600 };
+
+        _ = c.xcb_configure_window(con.connection, window_id, mask, &values);
     }
 };
 
-const linux = struct {
-    const c = @cImport({
-        @cInclude("xcb/xcb.h");
-        // @cInclude("xcb/xproto.h");
-        @cInclude("X11/keysym.h");
-        @cInclude("X11/XKBlib.h");
-        @cInclude("X11/Xlib.h");
-        @cInclude("X11/Xlib-xcb.h");
-        @cInclude("sys/time.h");
-        @cInclude("stdlib.h");
-    });
+const XcbConnection = struct {
+    connection: *c.xcb_connection_t,
+    screen: *c.xcb_screen_t,
 
-    const NULL: i32 = 0;
-    const FALSE: i32 = 0;
-    const TRUE: i32 = 1;
-
-    pub const X11Window = struct {
-        display: ?*c.Display = null,
-        // Xcb connection to X11
-        connection: ?*c.xcb_connection_t = null,
-        //
-        window: c.xcb_window_t,
-        screen: ?*c.xcb_screen_t,
-        // window message
-        wm_protocols: c.xcb_atom_t,
-        // window message
-        wm_delete_win: c.xcb_atom_t,
-
-        pub fn getWindowSize(window: X11Window, width: *i32, height: *i32) !void {
-            if (window.display == null) {
-                return error.DisplayIsNull;
-            }
-            const cookie: c.xcb_get_geometry_cookie_t = c.xcb_get_geometry(window.connection.?, window.window);
-            const reply: ?*c.xcb_get_geometry_reply_t = c.xcb_get_geometry_reply(window.connection.?, cookie, null);
-            defer c.free(reply);
-
-            if (reply) |r| {
-                width.* = r.width;
-                height.* = r.height;
-                return;
-            }
-
-            return error.FailedToGetWindowSize;
-        }
-
-        pub fn init(config: Window.Config) !X11Window {
-            // Connect to X-server
-            const display: ?*c.Display = c.XOpenDisplay(NULL);
-            const connection: ?*c.xcb_connection_t = c.XGetXCBConnection(display);
-            const has_error = c.xcb_connection_has_error(connection.?);
-            if (has_error == TRUE) {
-                return error.XServerConnectionError; // failed to connect to X-server through XCB
-            }
-
-            // Retrieve setup data from X-server
-            const setup: ?*const c.xcb_setup_t = c.xcb_get_setup(connection.?);
-
-            // Loop through the screens and grab one using an iterator (just grabbing the first one right now)
-            var screen_it: c.xcb_screen_iterator_t = c.xcb_setup_roots_iterator(setup.?);
-            var screen_index: i32 = 0;
-            while (screen_index > 0) : (screen_index -= 1) {
-                c.xcb_screen_next(&screen_it);
-            }
-            const screen: ?*c.xcb_screen_t = screen_it.data;
-
-            // Generate XID for the window
-            const window: c.xcb_window_t = c.xcb_generate_id(connection.?);
-
-            // Event types
-
-            // Listen for keyboard and mouse button events
-            const values: u32 =
-                c.XCB_EVENT_MASK_BUTTON_PRESS |
-                c.XCB_EVENT_MASK_BUTTON_RELEASE |
-                c.XCB_EVENT_MASK_KEY_PRESS |
-                c.XCB_EVENT_MASK_KEY_RELEASE |
-                c.XCB_EVENT_MASK_EXPOSURE |
-                c.XCB_EVENT_MASK_POINTER_MOTION |
-                c.XCB_EVENT_MASK_STRUCTURE_NOTIFY;
-
-            // XCB_CW_BACK_PIXEL = fill window with single color
-            // XCB_CW_EVENT_MASK = required bit
-            const value_mask: u32 = c.XCB_CW_BACK_PIXEL | c.XCB_CW_EVENT_MASK;
-            const value_list = [_]u32{
-                screen.?.*.black_pixel,
-                values,
-            };
-
-            // Create window
-            _ = c.xcb_create_window(
-                connection,
-                c.XCB_COPY_FROM_PARENT, // depth, don't need it so just letting it be
-                window,
-                screen.?.*.root,
-                config.x,
-                config.y,
-                config.width,
-                config.height,
-                0, // border
-                c.XCB_WINDOW_CLASS_INPUT_OUTPUT, // window class, accepting input & output
-                @intCast(u16, screen.?.*.root_visual), // id for windows new visual
-                value_mask,
-                &value_list,
-            );
-
-            // Change window title
-            _ = c.xcb_change_property(
-                connection,
-                c.XCB_PROP_MODE_REPLACE, // replace previous value
-                window,
-                c.XCB_ATOM_WM_NAME,
-                c.XCB_ATOM_STRING,
-                @bitSizeOf(u8), // read data 8 bits at a time (1 char)
-                @intCast(u32, config.title.len),
-                config.title.ptr,
-            );
-
-            // Tell X-server to send notifications when the window manager tries to destroy
-            // the window.
-            const atoms = try requestAtoms(connection.?, &.{ "WM_DELETE_WINDOW", "WM_PROTOCOLS" });
-            const wm_delete_win_atom = atoms[0];
-            const wm_protocols_atom = atoms[1];
-
-            // -----------
-
-            // set replies on window
-            _ = c.xcb_change_property(
-                connection,
-                c.XCB_PROP_MODE_REPLACE,
-                window,
-                wm_protocols_atom,
-                4,
-                32,
-                1,
-                &wm_delete_win_atom,
-            );
-
-            // Map window to screen
-            _ = c.xcb_map_window(connection, window);
-
-            // Flush the stream, force any output to be written to X-server
-            const stream_result = c.xcb_flush(connection);
-            if (stream_result <= 0) {
-                return error.FailedToFlushStream;
-            }
-
-            return X11Window{
-                .display = display,
-                .connection = connection,
-                .window = window,
-                .screen = screen,
-                //
-                .wm_delete_win = wm_delete_win_atom,
-                .wm_protocols = wm_protocols_atom,
-            };
-        }
-
-        pub fn deinit(platform: X11Window) void {
-            _ = c.xcb_destroy_window(
-                platform.connection.?,
-                platform.window,
-            );
-        }
-
-        pub fn pollEvents(platform: X11Window) bool {
-            var should_window_close = false;
-
-            // Process events (returns null when there are no events left)
-            while (c.xcb_poll_for_event(platform.connection.?)) |event| {
-                // xcb_poll_for_event is dynamically allocating, event needs to be freed
-                defer c.free(event);
-
-                // Switch on input events.
-                // The first bit signifies the event's origin, don't care about this.
-                // ~0x80 = 0111 1111 => removing the first bit
-                switch (event.?.*.response_type & ~@intCast(i32, 0x80)) {
-                    c.XCB_KEY_PRESS, c.XCB_KEY_RELEASE => {
-                        // handle key input
-                    },
-                    c.XCB_BUTTON_PRESS, c.XCB_BUTTON_RELEASE => {
-                        // handle mouse button input
-                    },
-                    c.XCB_MOTION_NOTIFY => {
-                        // mouse movement input
-                    },
-                    c.XCB_CONFIGURE_NOTIFY => {
-                        // window resizing
-                    },
-                    c.XCB_CLIENT_MESSAGE => {
-                        const client_message_event = @ptrCast(?*c.xcb_client_message_event_t, event);
-
-                        if (client_message_event.?.*.data.data32[0] == platform.wm_delete_win) {
-                            log.debug("exit request message received, exiting...", .{});
-                            should_window_close = true;
-                            break;
-                        }
-                    },
-                    else => {},
-                }
-            }
-
-            return !should_window_close;
-        }
+    const XcbError = error{
+        Connect,
+        GetScreen,
+        Flush,
     };
 
-    fn requestAtoms(connection: ?*c.xcb_connection_t, comptime atom_names: []const [:0]const u8) ![atom_names.len]c.xcb_atom_t {
-        const atom_count = atom_names.len;
+    fn disconnect(self: @This()) void {
+        _ = c.xcb_disconnect(self.connection);
+    }
 
-        var cookies: [atom_count]c.xcb_intern_atom_cookie_t = undefined;
+    fn connect() XcbError!XcbConnection {
+        // Connect to the X11 server. Passing null as display name grabs the name from the $DISPLAY environment variable.
+        var screen_index: i32 = 0;
+        const connection: *c.xcb_connection_t = c.xcb_connect(null, &screen_index) orelse return XcbError.Connect;
+        errdefer _ = c.xcb_disconnect(connection);
 
-        // request atom identifiers for the event's we want to listen to
-        for (atom_names, 0..) |atom_name, index| {
-            cookies[index] = c.xcb_intern_atom(
-                connection.?,
-                0,
-                @intCast(u16, atom_name.len),
-                atom_name.ptr,
-            );
+        // Fetch xcb screen object
+        const screen: *c.xcb_screen_t = blk: {
+            const setup: *const c.xcb_setup_t = c.xcb_get_setup(connection);
+            var screen_iter: c.xcb_screen_iterator_t = c.xcb_setup_roots_iterator(setup);
+            var i: i32 = 0;
+            while (i < screen_index) : (i += 1) c.xcb_screen_next(&screen_iter);
+            break :blk screen_iter.data orelse return XcbError.GetScreen;
+        };
+
+        return .{
+            .connection = connection,
+            .screen = screen,
+        };
+    }
+
+    /// Clear xcb-internal write buffer and send all pending requests to the X11 server
+    fn flush(self: @This()) XcbError!void {
+        const result = c.xcb_flush(self.connection);
+        if (result < 1) {
+            return XcbError.Flush;
         }
+    }
 
-        // get atom replies
-        var atom_replies: [atom_count]?*c.xcb_intern_atom_reply_t = undefined;
-        for (cookies, 0..) |cookie, index| {
-            atom_replies[index] = c.xcb_intern_atom_reply(
-                connection.?,
-                cookie,
-                NULL,
-            );
-        }
-        defer for (atom_replies) |reply| if (reply) |r| c.free(r);
+    fn requestInternAtom(con: XcbConnection, atom_name: []const u8) c.xcb_intern_atom_cookie_t {
+        return c.xcb_intern_atom(con.connection, 0, @intCast(u16, atom_name.len), atom_name.ptr);
+    }
 
-        // get atoms, crash if unavailable
-        var atoms: [atom_count]c.xcb_atom_t = undefined;
-        for (atom_replies, 0..) |reply_, index| {
-            const reply = reply_ orelse return error.AtomReplyMissing;
-            atoms[index] = reply.*.atom;
-        }
-
-        return atoms;
+    fn recvInternAtomReply(con: XcbConnection, request_cookie: c.xcb_intern_atom_cookie_t) ?*c.xcb_intern_atom_reply_t {
+        return c.xcb_intern_atom_reply(con.connection, request_cookie, null);
     }
 };
+
+/// Window creation request
+fn createWindow(con: XcbConnection, window_props: WindowProps) c.xcb_window_t {
+    const window_id: c.xcb_window_t = c.xcb_generate_id(con.connection);
+
+    const event_mask =
+        c.XCB_EVENT_MASK_BUTTON_PRESS |
+        c.XCB_EVENT_MASK_BUTTON_RELEASE |
+        c.XCB_EVENT_MASK_KEY_PRESS |
+        c.XCB_EVENT_MASK_KEY_RELEASE |
+        c.XCB_EVENT_MASK_EXPOSURE |
+        c.XCB_EVENT_MASK_POINTER_MOTION |
+        c.XCB_EVENT_MASK_STRUCTURE_NOTIFY;
+
+    const mask: u32 = c.XCB_CW_BACK_PIXEL | c.XCB_CW_EVENT_MASK;
+    const values = [_]u32{ con.screen.black_pixel, event_mask };
+
+    _ = c.xcb_create_window(
+        con.connection,
+        con.screen.root_depth,
+        window_id,
+        con.screen.root,
+        window_props.x,
+        window_props.y,
+        window_props.width,
+        window_props.height,
+        10,
+        c.XCB_WINDOW_CLASS_INPUT_OUTPUT,
+        con.screen.root_visual,
+        mask,
+        &values,
+    );
+
+    return window_id;
+}
+
+/// Display window resquest
+fn mapWindow(con: XcbConnection, window: c.xcb_window_t) void {
+    _ = c.xcb_map_window(con.connection, window);
+}
+
+fn changeWindowTitle(con: XcbConnection, window: c.xcb_window_t, title: []const u8) void {
+    _ = c.xcb_change_property(
+        con.connection,
+        c.XCB_PROP_MODE_REPLACE,
+        window,
+        c.XCB_ATOM_WM_NAME,
+        c.XCB_ATOM_STRING,
+        @sizeOf(u8) * 8, // should be read 8 bits at a time
+        @intCast(u32, title.len),
+        title.ptr,
+    );
+}

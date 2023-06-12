@@ -5,23 +5,15 @@ const Window = @import("window.zig").Window;
 const Timer = std.time.Timer;
 const Renderer = @import("renderer.zig").Renderer;
 
+const events = @import("events.zig");
+
 const c = @cImport({
     @cInclude("xcb/xcb.h");
-    @cInclude("X11/keysym.h");
-    @cInclude("X11/XKBlib.h");
-    @cInclude("X11/Xlib.h");
-    @cInclude("X11/Xlib-xcb.h");
-    @cInclude("sys/time.h");
-    @cInclude("stdlib.h");
 });
 
 // defined in root for vulkan-zig
 pub const xcb_connection_t = c.xcb_connection_t;
 pub const xcb_window_t = c.xcb_window_t;
-
-const NULL: i32 = 0;
-const FALSE: i32 = 0;
-const TRUE: i32 = 1;
 
 /// Custom log implementation.
 /// Overriding log implementation by defining root.log
@@ -68,70 +60,78 @@ const Game = struct {
     }
 };
 
-fn nanosecondsToSeconds(ns: u64) f64 {
-    return @intToFloat(f64, ns) / @intToFloat(f64, std.time.ns_per_s);
-}
+const TimeTicker = struct {
+    clock: Timer,
+    last_time: u64,
+    fps_limit: f64,
 
-fn secondsToNanoSeconds(s: f64) u64 {
-    return @floatToInt(u64, s * std.time.ns_per_s);
-}
+    pub fn init(fps_limit: f64) !TimeTicker {
+        var clock = try Timer.start();
+        const last_time = clock.read();
 
-const FpsThrottler = struct {
-    const Config = struct {
-        should_cap_fps: bool = true,
-        max_frames_per_second: f64 = 60.0,
-    };
-
-    frame_duration_timer: Timer,
-    config: Config,
-
-    fn init(config: Config) !FpsThrottler {
-        return FpsThrottler{
-            .frame_duration_timer = try Timer.start(),
-            .config = config,
+        return TimeTicker{
+            .clock = clock,
+            .last_time = last_time,
+            .fps_limit = fps_limit,
         };
     }
 
-    fn beginFrame(throttler: *FpsThrottler) void {
-        throttler.frame_duration_timer.reset();
+    pub fn tick(self: *TimeTicker) f64 {
+        var now: u64 = self.clock.read();
+        var delta_time: u64 = now - self.last_time;
+
+        if (self.fps_limit > 0.0) {
+            const min_delta_time: u64 = secondsToNanoSeconds(1.0 / self.fps_limit);
+            const remaining_ns_to_min_dt: u64 = min_delta_time - delta_time;
+            if (remaining_ns_to_min_dt > 0) {
+                std.time.sleep(remaining_ns_to_min_dt);
+            }
+
+            now = self.clock.read();
+            delta_time = now - self.last_time;
+        }
+        self.last_time = now;
+
+        return nanosecondsToSeconds(delta_time);
     }
 
-    fn endFrame(throttler: *FpsThrottler) void {
-        if (throttler.config.should_cap_fps) {
-            const frame_elapsed_time = throttler.frame_duration_timer.read();
-            const target_fps_ns = secondsToNanoSeconds(1.0 / throttler.config.max_frames_per_second);
-            const remaining_ns: u64 = target_fps_ns - frame_elapsed_time;
-            if (remaining_ns > 0) {
-                std.time.sleep(remaining_ns);
-            }
-        }
+    fn nanosecondsToSeconds(ns: u64) f64 {
+        return @intToFloat(f64, ns) / @intToFloat(f64, std.time.ns_per_s);
+    }
+
+    fn secondsToNanoSeconds(s: f64) u64 {
+        return @floatToInt(u64, s * std.time.ns_per_s);
     }
 };
 
 pub fn main() anyerror!void {
-    var fps_throttler = try FpsThrottler.init(.{});
-    var game = Game{};
-
-    const window = try Window.init(.{});
+    const window = try Window.init(.{
+        .x = 10,
+        .y = 10,
+        .width = 800,
+        .height = 600,
+    });
     defer window.deinit();
 
     var renderer = try Renderer.init(window);
     defer renderer.deinit();
 
-    var clock = try Timer.start();
-    var last_time: u64 = clock.read();
+    var game = Game{};
+    var game_tick = try TimeTicker.init(60.0);
 
-    while (window.pollEvents()) {
-        const now: u64 = clock.read();
-        const dt: f64 = nanosecondsToSeconds(now - last_time);
-        last_time = now;
+    var platform_events = events.PlatformEvents{};
+
+    while (true) {
+        try events.pollPlatformEvents(window, &platform_events);
+
+        if (platform_events.should_exit) {
+            break;
+        }
+
+        const dt = game_tick.tick();
 
         const delta_time = @floatCast(f32, dt);
-
         {
-            fps_throttler.beginFrame();
-            defer fps_throttler.endFrame();
-
             game.update(delta_time) catch |e| {
                 std.log.err("game update failed with error: {}", .{e});
                 return e;
@@ -146,8 +146,6 @@ pub fn main() anyerror!void {
                 .delta_time = delta_time,
             });
         }
-
-        // input
     }
 
     std.log.info("Exit success", .{});
